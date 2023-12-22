@@ -4,3 +4,8 @@ Official repository of "Prompting Segmentation with Sound is Generalizable Audio
 arXiv: https://arxiv.org/abs/2309.07929
 
 The project page and code are expected to be released before March, 2024.
+
+### AVS-V3 dataset
+- For zero-shot, you should train with "meta_v3_seen_train", eval with "meta_v3_seen_val", then test with "meta_v3_unseen".
+
+- For other few-shot settings, the val set is remained (i.e., "meta_v3_seen_val"), training samples are picked up from  "meta_v3_unseen". In summary, train with "/v3_x_shot/train", test with "/v3_x_shot/test".
