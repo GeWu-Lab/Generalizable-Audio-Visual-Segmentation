@@ -1,4 +1,5 @@
-# GAVS: Generalizable-Audio-Visual-Segmentation
+# Prompting Segmentation with Sound Is Generalizable Audio-Visual Source Localizer
+## GAVS: Generalizable-Audio-Visual-Segmentation
 Official repository of "Prompting Segmentation with Sound is Generalizable Audio-Visual Source Localizer", AAAI 2024
 
 arXiv: https://arxiv.org/abs/2309.07929
