@@ -20,15 +20,28 @@ We develop the V3 dataset for analyzing the generalization ability of audio-visu
 
 # 1. Comparison with traditional AVS models
 
+![teaser](assets/README/image.png)
+The AVS pipeline comprises the classical encoder-fusion-decoder (upper-center) and our proposed encoder-prompt-decoder (lower-center) paradigms. The traditional method decodes the mask from the fused modality, while our approach prompts visual input with audio to adapt AVL and AVS tasks to the visual foundational model. Results on the VGG-SS dataset underscore the challenge of generalizing across different datasets. Nevertheless, our approach surpasses the 40% cIoU barrier, achieving performance closer to the best-trained in-set (VGG-Sound) methods.
+
 # 2. Model architecture
+
+![architecture](assets/README/image-1.png)
+
+The overview of GAVS. (1) We firstly align the audio and visual semantics for SAP, and introduce visual features as cues (the green one in $F_{A'}$) for audio input (the blue one in $F_{A'}$). Then we further combine audio input with learnable adaptive noise (the pink one in $F_{A'}$) to construct the final SAP $F_{A'}$, and get the projected prompt $F_{P}$ . (2) Next, we utilize cross-modal attention to learn the correlation between audio and visual in the Audio Source Decoder, projecting audio into the visual space. The self-attention for $F_{P}$ before the first cross-modal attention is omitted for clarity.
 
 # 3. Experiments
 ## 3.1 AVS-Benchmarks
-
+**Performance on AVS-Benchmarks**
+![Alt text](assets/README/image-3.png)
+**Performance on AVS-V3**
+![Alt text](assets/README/image-4.png)
+test the generalization ability on unseen object classes.
 ## 3.2 Data efficiency
-
+![Alt text](assets/README/image-5.png)
+ Our model performs better with just 10% of the training data compared to other models trained with 30%. It even outperforms models trained on the full dataset when trained with only 50% of the data.
 # 4. Qualitative results
-
+![Alt text](assets/README/image-6.png)
+ Our method successfully visualizes segmented masks for unseen classes in the AVS-V2 and AVS-V3 zero-shot test sets. It accurately identifies objects despite their semantic classes being absent from the training set, demonstrating superior zero-shot generalization abilities over AVSBench's encoder-fusion-decoder approach.
 # 5. Run
 ## 5.1 run scripts
 \> cd segment_anything  
