@@ -51,8 +51,30 @@ test the generalization ability on unseen object classes.
 All path configured should be found in dataset/avs_bench.py  
 
 ## 5.3 SAM checkpoint  
+Please check this [link](https://github.com/facebookresearch/segment-anything) to get started with Segment Anything Model and download the pretrained weights.
 
 ## 5.4 VGGish for audio feature extraction  
+VGGish was originally a audio model developed by Google based on TensorFlow.
+
+Please find in this [repository](https://github.com/harritaylor/torchvggish) to extract the audio feature with *PyTorch*.
+
+Additionally, you may find off-line method is more convenient:
+
+(1) Use [Towhee](https://link.zhihu.com/?target=https%3A//github.com/towhee-io)
+```
+from towhee import pipe, ops
+
+p = (  # pipeline building
+      pipe.input('path')
+          .map('path', 'frame', ops.audio_decode.ffmpeg())
+          .map('frame', 'vecs', ops.audio_embedding.vggish())
+          .output('vecs')
+)
+
+emb = p('audio_example.wav').get()[0]  # shape=[n_seconds, 128]
+```
+
+(2) With Google Colab: [link](https://colab.research.google.com/drive/1r_8OnmwXKwmH0n4RxBfuICVBgpbJt_Fs?usp=sharing#scrollTo=MJWFPPSoAQzF).
 
 # 6. Citation
 We appreciate your citation if you found our work is helpful:
