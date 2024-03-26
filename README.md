@@ -46,8 +46,8 @@ test the generalization ability on unseen object classes.
  Our method successfully visualizes segmented masks for unseen classes in the AVS-V2 and AVS-V3 zero-shot test sets. It accurately identifies objects despite their semantic classes being absent from the training set, demonstrating superior zero-shot generalization abilities over AVSBench's encoder-fusion-decoder approach.
 # 5. Run
 ## 5.1 run scripts
-\> cd segment_anything  
-\> sh run_v1m.sh
+\> `cd segment_anything`  
+\> `sh run_v1m.sh` or `sh run_v3.sh`
 
 ## 5.2 Path
 All path configured should be found in dataset/avs_bench.py  
