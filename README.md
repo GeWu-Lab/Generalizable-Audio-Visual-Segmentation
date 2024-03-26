@@ -16,7 +16,9 @@ Due to the scarcity of AVS data and the varying data distribution in real-world 
 We develop the V3 dataset for analyzing the generalization ability of audio-visual segmentation models.   
 - For zero-shot, you should train with "meta_v3_seen_train", eval with "meta_v3_seen_val", then test with "meta_v3_unseen".
 
-- For other few-shot settings, the val set is remained (i.e., "meta_v3_seen_val"), training samples are picked up from  "meta_v3_unseen". In summary, train with "/v3_x_shot/train", test with "/v3_x_shot/test".
+- For other few-shot settings, the val set is remained (i.e., "meta_v3_seen_val"), and incrementally train with "/v3_x_shot/train" for 10 epochs based on the model trained with "meta_v3_seen_train", and test with "/v3_x_shot/test".
+
+- See "./segment_anything/dataset/avs_bench_zsfs.py".
 
 # 1. Comparison with traditional AVS models
 
