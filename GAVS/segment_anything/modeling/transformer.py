@@ -10,7 +10,8 @@ from torch import Tensor, nn
 import math
 from typing import Tuple, Type
 
-from .common import MLPBlock, AdapterLayer
+from .common import MLPBlock
+from .lora import apply_lora_to_linear
 
 
 class TwoWayTransformer(nn.Module):
@@ -22,6 +23,8 @@ class TwoWayTransformer(nn.Module):
             mlp_dim: int,
             activation: Type[nn.Module] = nn.ReLU,
             attention_downsample_rate: int = 2,
+            lora_r: int = 16,
+            lora_alpha: float = 16.0,
     ) -> None:
         """
         A transformer decoder that attends to an input image using
@@ -34,12 +37,16 @@ class TwoWayTransformer(nn.Module):
             divide embedding_dim
           mlp_dim (int): the channel dimension internal to the MLP block
           activation (nn.Module): the activation to use in the MLP block
+          lora_r (int): LoRA rank for attention adaptation
+          lora_alpha (float): LoRA scaling factor
         """
         super().__init__()
         self.depth = depth
         self.embedding_dim = embedding_dim
         self.num_heads = num_heads
         self.mlp_dim = mlp_dim
+        self.lora_r = lora_r
+        self.lora_alpha = lora_alpha
         self.layers = nn.ModuleList()
 
         for i in range(depth):
@@ -58,6 +65,28 @@ class TwoWayTransformer(nn.Module):
             embedding_dim, num_heads, downsample_rate=attention_downsample_rate
         )
         self.norm_final_attn = nn.LayerNorm(embedding_dim)
+
+    def enable_lora(self) -> int:
+        """Apply LoRA to all attention layers in the decoder transformer.
+
+        Returns:
+            Total number of LoRA-wrapped layers.
+        """
+        total = 0
+        target_names = ['q_proj', 'k_proj', 'v_proj', 'out_proj']
+        for layer in self.layers:
+            for attn_name in ['self_attn', 'cross_attn_token_to_image', 'cross_attn_image_to_token']:
+                attn_module = getattr(layer, attn_name)
+                total += apply_lora_to_linear(
+                    attn_module, target_names,
+                    r=self.lora_r, alpha=self.lora_alpha,
+                )
+        # Also apply to final attention layer
+        total += apply_lora_to_linear(
+            self.final_attn_token_to_image, target_names,
+            r=self.lora_r, alpha=self.lora_alpha,
+        )
+        return total
 
     def forward(
             self,
@@ -149,14 +178,10 @@ class TwoWayAttentionBlock(nn.Module):
 
         self.skip_first_layer_pe = skip_first_layer_pe
 
-        self.adapter_tf = AdapterLayer(256, 128)  # with skip connection
-        # self.adapter_path_v = AdapterLayer(256, 128)  # with skip connection
-
     def forward(
             self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
     ) -> Tuple[Tensor, Tensor]:
-        # print(f"[ 0] Transformer: {queries.shape, keys.shape}")  # (torch.Size([1, 6, 256]), torch.Size([1, 4096, 256]))
-        # Self attention block
+        # Self attention block (LoRA inside q/k/v/out_proj if enabled)
         if self.skip_first_layer_pe:
             queries = self.self_attn(q=queries, k=queries, v=queries)
         else:
@@ -174,20 +199,12 @@ class TwoWayAttentionBlock(nn.Module):
 
         # MLP block
         mlp_out = self.mlp(queries)
-        # print('mlp-out:', mlp_out.shape)  # [1, 6, 256]
-
-        ''' Adapter-Transformer '''
-        mlp_out = self.adapter_tf(mlp_out)
-        # print('mlp-out:', mlp_out.shape)
-
-        # add & norm
         queries = queries + mlp_out
         queries = self.norm3(queries)
 
         # Cross attention block, image embedding attending to tokens
         q = queries + query_pe
         k = keys + key_pe
-        # print("q/k-shape:", queries.shape, keys.shape)
         attn_out = self.cross_attn_image_to_token(q=k, k=q, v=queries)
 
         keys = keys + attn_out

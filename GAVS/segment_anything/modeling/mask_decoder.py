@@ -11,7 +11,6 @@ from torch.nn import functional as F
 from typing import List, Tuple, Type
 
 from .common import LayerNorm2d
-from config import args
 
 
 class MaskDecoder(nn.Module):
@@ -104,11 +103,7 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        # print("[0]", sparse_prompt_embeddings.shape, f"{__file__}")  # [1, 1, 256]
-
-        # input()
-        sparse_prompt_embeddings = self.audio_proj(sparse_prompt_embeddings.to(args.device))
-        # sparse_prompt_embeddings = self.sparse_proj(sparse_prompt_embeddings)
+        sparse_prompt_embeddings = self.audio_proj(sparse_prompt_embeddings)
         assert sparse_prompt_embeddings.shape[-1] == 256, f'sparse: {sparse_prompt_embeddings.shape}'
 
         masks, iou_pred = self.predict_masks(
@@ -156,8 +151,7 @@ class MaskDecoder(nn.Module):
 
         # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
-        upscaled_embedding = self.output_upscaling(src)  # upscale: torch.Size([1, 32, 256, 256])
-        # print('upscale:', upscaled_embedding.shape)
+        upscaled_embedding = self.output_upscaling(src)
 
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):

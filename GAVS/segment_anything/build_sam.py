@@ -103,7 +103,7 @@ def _build_sam(
     if checkpoint is not None:
         if isinstance(checkpoint, str):
             with open(checkpoint, "rb") as f:
-                state_dict = torch.load(f)
+                state_dict = torch.load(f, weights_only=False)
             sam.load_state_dict(state_dict, strict=False)
         else:
             sam.load_state_dict(checkpoint, strict=False)

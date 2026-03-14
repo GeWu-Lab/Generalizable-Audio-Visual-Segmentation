@@ -16,7 +16,6 @@ class AVSM(nn.Module):
 
     def decode_with_pmp(self, image_embed, audio_embed):
         with torch.no_grad():
-            # print(self.model_v.prompt_encoder)
             sparse_embeddings, dense_embeddings = self.model_v.prompt_encoder(
                 points=None,
                 boxes=None,
@@ -36,15 +35,10 @@ class AVSM(nn.Module):
 
         return low_res_masks, iou_predictions
     
-    def add_noise_Gaussian(self, x, m=0, stddev=0.1, noise_strength=1):
-        return self.add_gaussian_noise(x=x)
-
-    def add_gaussian_noise(self, x, std=0.1, strngth=0.1):
+    def add_gaussian_noise(self, x: torch.Tensor) -> torch.Tensor:
         std = torch.std(x.view(-1))
         noise = torch.randn_like(x) * std
-        # a, b = x.min(), x.max()
-
-        return noise
+        return x + noise
 
     def forward(self, batch_data, vid_temporal_mask_flag=None):
         img_recs, mask_recs, vid, category, _, _ = batch_data
@@ -58,17 +52,19 @@ class AVSM(nn.Module):
             original_size = img_rec.get('original_size', None)
             # image_embed = img_rec.get('image_embed', None)
             audio_embed = img_rec.get('audio', None)
-            # print('audio:', audio_embed.shape)  # [1, 128]
-            
-            # ===== add noise
-            if self.training:
-                audio_embed = self.add_noise_Gaussian(audio_embed)
-            # ============
 
-            # if get img emb from visual encoder:
+            # Add noise during training
+            if self.training:
+                audio_embed = self.add_gaussian_noise(audio_embed)
+
+            # Get image embedding: from encoder (with adapters) or pre-extracted
             if self.config['tune_v'] < 12:
                 image_input = img_rec.get('image')  # [1, 3, 1024, 1024]
-                image_embed = self.model_v.image_encoder(image_input)
+                image_embed = self.model_v.image_encoder(image_input, tune_v=self.config['tune_v'])
+            else:
+                image_embed = img_rec.get('image_embed')
+                if image_embed is not None and image_embed.dim() == 3:
+                    image_embed = image_embed.unsqueeze(0)  # [C, H, W] -> [1, C, H, W]
 
             low_res_masks, iou_predictions = self.decode_with_pmp(image_embed, audio_embed)
 

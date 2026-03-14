@@ -36,10 +36,6 @@ AUDIO_FROM = 'vggish_embs'
 # AUDIO_FROM = 'aud_emb'
 
 def train(model, train_loader, optimizer, _ep):
-    # for m, p in model.named_parameters():
-    #     if p.requires_grad:
-    #         print(m)
-    # input()
     print('train..')
     model.train()
     losses = []
@@ -101,7 +97,7 @@ def run(model, device='cuda:1', ckpt_dir='./none', data_ver=DATA):
     # train_dataset = AVS('v3_3_shot/train', feature_dir, device=device, model=model.model_v, audio_from=audio_from)  # 3-shot train
     # test_dataset = AVS('v3_3_shot/test', feature_dir, device=device, model=model.model_v, audio_from=audio_from)  # 3-shot test
     # train_dataset = AVS('v3_5_shot/train', feature_dir, device=device, model=model.model_v, audio_from=audio_from)  # 5-shot train
-    # test_dataset = AVS('v3_6_shot/test', feature_dir, device=device, model=model.model_v, audio_from=audio_from)  # 5-shot test
+    # test_dataset = AVS('v3_5_shot/test', feature_dir, device=device, model=model.model_v, audio_from=audio_from)  # 5-shot test
     val_dataset = AVS('meta_v3_seen_val', feature_dir, device=device, model=model.model_v, audio_from=audio_from)  # val
     test_dataset = AVS('meta_v3_unseen', feature_dir, device=device, model=model.model_v, audio_from=audio_from)  # test
 
@@ -111,36 +107,19 @@ def run(model, device='cuda:1', ckpt_dir='./none', data_ver=DATA):
     elif args.val == 'test' or args.val == 'test_in':
         val_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 
-    # tuned params:
-    params_names = [
-        # 'sparse_proj',
-        'adapter_tf',
-        'audio_proj',
-        'adapter_v',
-    ]
+    # Freeze all, then selectively enable LoRA params + audio projection
+    for param in model.parameters():
+        param.requires_grad = False
 
-    # fine-tune model
-    tuned_num = 0
+    trainable_keywords = ['lora_A', 'lora_B', 'audio_proj']
     for name, param in model.named_parameters():
-        param.requires_grad = False
-        for _n in params_names:
-            if _n in name:   
-                param.requires_grad = True   
-                tuned_num += 1
-
-    for name, param in model.model_v.image_encoder.blocks.named_parameters():
-        param.requires_grad = False
-        tune_blk = args.tune_v
-        blk_id = name.split('.')[0]
-        if int(blk_id) >= tune_blk and 'adapter_v' in name:
-            param.requires_grad = True
-        if int(blk_id) >= tune_blk+1 and 'norm' in name:
+        if any(kw in name for kw in trainable_keywords):
             param.requires_grad = True
 
-    for name, param in model.named_parameters():
-        if param.requires_grad:
-            print("Requires_grad:", name)
-    # input()
+    tuned_params = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
+    print(f'Trainable parameters: {len(tuned_params)}')
+    for name, _ in tuned_params:
+        print(f"  requires_grad: {name}")
 
     # Optimizer & Loss
     params2 = [{'params': [p for name, p in model.named_parameters() if p.requires_grad], 'lr': 1e-3}]
@@ -183,8 +162,7 @@ if __name__ == '__main__':
 
     print(f'----- NOTE: using audio from {AUDIO_FROM} !')
     checkpoint_1 = args.checkpoint
-    checkpoint_1 = "/home/yaoting_wang/segment-anything-main/segment_anything/checkpoint/sam_vit_b_01ec64.pth"
-    input(f' --- Run with checkpoint: {checkpoint_1}, continue? ---')
+    print(f'Run with checkpoint: {checkpoint_1}')
 
     loss_fn = get_loss_fn(args.loss, device='cuda')
     optim_config = {
@@ -194,10 +172,14 @@ if __name__ == '__main__':
         'tune_v': args.tune_v,
     }
 
-    sam_avs = sam_model_registry[args.model_type](checkpoint_1).to(args.device)  # strict=False
+    sam_avs = sam_model_registry[args.model_type](checkpoint_1).to(args.device)
+
+    # Enable LoRA on selected layers (replaces manual adapter_v / adapter_tf)
+    n_enc = sam_avs.image_encoder.enable_lora(tune_v=args.tune_v)
+    n_dec = sam_avs.mask_decoder.transformer.enable_lora()
+    print(f'LoRA enabled: {n_enc} encoder layers, {n_dec} decoder layers')
+
     avs = AVSM(model_v=sam_avs, model_t=None, config=optim_config).to(args.device)
-    # pretrained = torch.load(checkpoint_1)
-    # avs.load_state_dict(pretrained)
 
     torch.multiprocessing.set_start_method('spawn', force=True)
     print('use device:', args.device)

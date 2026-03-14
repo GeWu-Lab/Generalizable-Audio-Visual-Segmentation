@@ -106,10 +106,8 @@ class PromptEncoder(nn.Module):
         return mask_embedding
     
     def _embed_audios(self, audios: torch.Tensor) -> torch.Tensor:
-        """Embeds audio input."""
-        # audios_embedding = self.audio_proj(audios)
-        audios_embedding = audios
-        return audios_embedding
+        """Embeds audio input (projection done in MaskDecoder)."""
+        return audios
 
     def _get_batch_size(
         self,
@@ -166,10 +164,7 @@ class PromptEncoder(nn.Module):
             box_embeddings = self._embed_boxes(boxes)
             sparse_embeddings = torch.cat([sparse_embeddings, box_embeddings], dim=1)
         if audios is not None:
-            # print(f"{__file__}: audio is not none.")
             audios_embeddings = self._embed_audios(audios).unsqueeze(dim=0)
-            # print(sparse_embeddings.shape, audios_embeddings.shape)
-            # sparse_embeddings = torch.cat([sparse_embeddings, audios_embeddings], dim=1)
             sparse_embeddings = audios_embeddings
 
         if masks is not None:

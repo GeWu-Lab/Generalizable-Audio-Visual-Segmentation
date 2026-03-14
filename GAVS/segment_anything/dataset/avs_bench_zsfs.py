@@ -19,8 +19,7 @@ from utils.transforms import ResizeLongestSide
 from torchvision import transforms
 from collections import defaultdict
 import cv2
-
-# logger = log_agent('audio_recs.log')
+from PIL import Image
 
 import pickle as pkl
 
@@ -38,15 +37,16 @@ class AVS(Dataset):
         self.model = model
         self.transform = ResizeLongestSide(self.model.image_encoder.img_size)
 
-        meta_path = f'segment_anything/dataset/v3/{metafile}.csv'  # one-shot: metafile='v3_1_shot/train.csv'
+        # Extract split from metafile name (e.g. 'meta_v3_seen_train' -> 'train', 'v3_1_shot/train' -> 'train')
+        self.split = metafile.rsplit('_', 1)[-1].split('/')[-1]
+
+        meta_path = f'segment_anything/dataset/v3/{metafile}.csv'
         self.metadata = pd.read_csv(meta_path, header=0)
 
         self.audio = None
         self.images = None
 
         self.mask_transform = transforms.Compose([transforms.ToTensor()])
-
-        # self.logger = log_agent('dataset.log')
 
         self.data_base_path = '../../data/AVS/'
         self.feat_path = f'../segment_anything/feature_extract'
@@ -63,7 +63,7 @@ class AVS(Dataset):
         img_recs = []
         mask_recs = []
 
-        feat_aud_p = f'{self.feat_path}/{self.ver}_vggish_embs/{vid}.npy'
+        feat_aud_p = f'{self.feat_path}/{ver}_vggish_embs/{vid}.npy'
         feat_aud = torch.from_numpy(np.load(feat_aud_p)).to(self.device).squeeze().detach()
 
         for _idx in range(FN):  # set frame_num as the batch_size
@@ -71,7 +71,7 @@ class AVS(Dataset):
 
             # cheange to your own extracted feature path
             # if you would like to extract feature during the training, please comment this block and return null variable.
-            feat_img_p = f'{self.feat_path}/{self.ver}_img_embed/{vid}_f{_idx}.pth'  # image feature
+            feat_img_p = f'{self.feat_path}/{ver}_img_embed/{vid}_f{_idx}.pth'  # image feature
             image_embed = torch.load(feat_img_p).squeeze().to(self.device)
 
             # data
@@ -102,7 +102,7 @@ class AVS(Dataset):
             # transformed_data['engine_input'] = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
             # mask label
-            _idx_mask = 0 if self.split == 'train' and self.ver == 'v1s' else _idx
+            _idx_mask = 0 if self.split == 'train' and ver == 'v1s' else _idx
             path_mask = f'{self.data_path}/{vid}/labels_rgb/{_idx_mask}.png'
             mask_cv2 = cv2.imread(path_mask)
             # mask_cv2 = cv2.resize(mask_cv2, (720, 1280))

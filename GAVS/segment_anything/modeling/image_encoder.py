@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 from .common import LayerNorm2d, MLPBlock
-from config import args
+from .lora import apply_lora_to_linear
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -33,6 +33,8 @@ class ImageEncoderViT(nn.Module):
         rel_pos_zero_init: bool = True,
         window_size: int = 0,
         global_attn_indexes: Tuple[int, ...] = (),
+        lora_r: int = 16,
+        lora_alpha: float = 16.0,
     ) -> None:
         """
         Args:
@@ -54,6 +56,8 @@ class ImageEncoderViT(nn.Module):
         """
         super().__init__()
         self.img_size = img_size
+        self.lora_r = lora_r
+        self.lora_alpha = lora_alpha
 
         self.patch_embed = PatchEmbed(
             kernel_size=(patch_size, patch_size),
@@ -103,13 +107,31 @@ class ImageEncoderViT(nn.Module):
             LayerNorm2d(out_chans),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def enable_lora(self, tune_v: int = 0) -> int:
+        """Apply LoRA to attention layers in blocks >= tune_v.
+
+        Args:
+            tune_v: Block index from which to start applying LoRA.
+
+        Returns:
+            Total number of LoRA-wrapped layers.
+        """
+        total = 0
+        for b_idx, blk in enumerate(self.blocks):
+            if b_idx >= tune_v:
+                total += apply_lora_to_linear(
+                    blk.attn, ['qkv', 'proj'],
+                    r=self.lora_r, alpha=self.lora_alpha,
+                )
+        return total
+
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
 
-        for b_idx, blk in enumerate(self.blocks):
-            x = blk(x, b_idx, update_when=args.tune_v)  # TODO: args.tune_v
+        for blk in self.blocks:
+            x = blk(x)
 
         x = self.neck(x.permute(0, 3, 1, 2))
 
@@ -163,15 +185,7 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-        self.dim_v = dim
-        # self.dim_v = 768  # 768
-        self.adapter_v = nn.Sequential(
-            nn.Linear(self.dim_v, 128),
-            nn.ReLU(),
-            nn.Linear(128, self.dim_v)
-        )
-
-    def forward(self, x: torch.Tensor, b_id, update_when) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
         x = self.norm1(x)
         # Window partition
@@ -179,20 +193,13 @@ class Block(nn.Module):
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
 
-        x = self.attn(x)
+        x = self.attn(x)  # LoRA is inside attn.qkv / attn.proj if enabled
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
-
-        # visual adapter tuning
-        mlp_out = self.mlp(self.norm2(x))
-
-        if b_id >= update_when:
-            mlp_out = self.adapter_v(mlp_out) + mlp_out
-            
-        x = x + mlp_out
+        x = x + self.mlp(self.norm2(x))
 
         return x
 
