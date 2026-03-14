@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Data & checkpoints (too large for git)
+data/
+GAVS/segment_anything/checkpoint/*.pth
+GAVS/segment_anything/feature_extract/
+GAVS/ckpt/
+
+# Logs & outputs
+*.log
+logger/
+
+# Archives
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db

@@ -11,8 +11,12 @@ class AVSM(nn.Module):
         self.model_t = model_t
         self.config = config
 
-        self.device = self.config.get('device')
         self.loss_fn = self.config.get('loss')
+
+    @property
+    def device(self):
+        """Derive device from model parameters (DDP-safe)."""
+        return next(self.parameters()).device
 
     def decode_with_pmp(self, image_embed, audio_embed):
         with torch.no_grad():

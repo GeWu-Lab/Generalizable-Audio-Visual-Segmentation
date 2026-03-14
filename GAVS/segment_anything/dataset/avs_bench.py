@@ -32,15 +32,18 @@ def load_image_in_PIL_to_Tensor(path, mode='RGB', transform=None):
 
 class AVS(Dataset):
     def __init__(self, split='train', ver='v2', feature_dir='', model=None, device=None, audio_from=None):
-        # metadata: train/test/val
-        self.device = device
-        self.model = model
-        self.transform = ResizeLongestSide(self.model.image_encoder.img_size)
+        # Extract preprocessing params from model (not stored to avoid pickling overhead in workers)
+        self.img_size = model.image_encoder.img_size
+        self.pixel_mean = model.pixel_mean.cpu().clone()
+        self.pixel_std = model.pixel_std.cpu().clone()
+        self.transform = ResizeLongestSide(self.img_size)
         self.ver = ver
         self.feature_base_path = feature_dir
-        self.data_base_path = f'../../data/AVS/{ver}'
+        _dir = os.path.dirname(os.path.abspath(__file__))
+        _repo = os.path.dirname(os.path.dirname(os.path.dirname(_dir)))  # GAVS/GAVS/..
+        self.data_base_path = os.path.join(_repo, 'data', 'AVS', ver)
         self.audio_from = audio_from
-        meta_path = '../../data/AVS/metadata.csv'
+        meta_path = os.path.join(_repo, 'data', 'AVS', 'metadata.csv')
         metadata = pd.read_csv(meta_path, header=0)
         sub_data = metadata[metadata['label'] == ver]  # v1s set
         # sub_data_train = sub_data[sub_data['split'] == 'train']
@@ -62,7 +65,16 @@ class AVS(Dataset):
         # self.logger = log_agent('dataset.log')
 
         self.data_path = self.data_base_path
-        self.feat_path = f'../segment_anything/feature_extract'
+        self.feat_path = os.path.join(_dir, '..', 'feature_extract')
+
+    def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalize pixel values and pad to a square input (CPU-safe)."""
+        x = (x - self.pixel_mean) / self.pixel_std
+        h, w = x.shape[-2:]
+        padh = self.img_size - h
+        padw = self.img_size - w
+        x = F.pad(x, (0, padw, 0, padh))
+        return x
 
     def __len__(self):
         return len(self.metadata)
@@ -75,20 +87,25 @@ class AVS(Dataset):
         mask_recs = []
 
         feat_aud_p = f'{self.feat_path}/{self.ver}_vggish_embs/{vid}.npy'
-        feat_aud = torch.from_numpy(np.load(feat_aud_p)).to(self.device).squeeze().detach()
+        feat_aud = torch.from_numpy(np.load(feat_aud_p)).squeeze().detach()
 
         FN = self.frame_num
         for _idx in range(FN):  # set frame_num as the batch_size
             path_frame = f'{self.data_path}/{vid}/frames/{_idx}.jpg'  # image
 
+            # Load pre-extracted image embedding if available (used when tune_v >= 12)
             if self.ver == 'v1s':
-                # cheange to your own extracted feature path
-                # if you would like to extract feature during the training, please comment this block and return null variable.
-                feat_img_p = f'{self.feat_path}/{self.ver}_img_embed/{vid}_f{_idx}.npy'  # image feature
-                image_embed = torch.from_numpy(np.load(feat_img_p)).squeeze().to(self.device)
+                feat_img_p = f'{self.feat_path}/{self.ver}_img_embed/{vid}_f{_idx}.npy'
             else:
-                feat_img_p = f'{self.feat_path}/{self.ver}_img_embed/{vid}_f{_idx}.pth'  # image feature
-                image_embed = torch.load(feat_img_p).squeeze().to(self.device)
+                feat_img_p = f'{self.feat_path}/{self.ver}_img_embed/{vid}_f{_idx}.pth'
+
+            if os.path.exists(feat_img_p):
+                if feat_img_p.endswith('.npy'):
+                    image_embed = torch.from_numpy(np.load(feat_img_p)).squeeze()
+                else:
+                    image_embed = torch.load(feat_img_p, map_location='cpu').squeeze()
+            else:
+                image_embed = torch.empty(0)  # placeholder; encoder runs on-the-fly
 
             # data
             transformed_data = defaultdict(dict)
@@ -97,17 +114,17 @@ class AVS(Dataset):
 
             input_image = self.transform.apply_image(image)
 
-            input_image_torch = torch.as_tensor(input_image, device=self.device)
+            input_image_torch = torch.as_tensor(input_image)
             transformed_image = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
 
             # prepare for input
-            input_image = self.model.preprocess(transformed_image)
+            input_image = self._preprocess(transformed_image)
             # print(image.shape)
             original_image_size = (image.shape[0], image.shape[1])  # H x W
             input_size = tuple(transformed_image.shape[-2:])
 
             # embedding
-            audio_embed = feat_aud[_idx].squeeze().to(self.device)
+            audio_embed = feat_aud[_idx].squeeze()
 
             # dict input
             transformed_data['image'] = input_image.squeeze()
@@ -125,7 +142,7 @@ class AVS(Dataset):
             mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2GRAY)
             mask = mask_cv2
             ground_truth_mask = (mask > 0)  # turn to T/F mask.
-            gt_mask_resized = torch.from_numpy(np.resize(ground_truth_mask, (1, 1, ground_truth_mask.shape[0], ground_truth_mask.shape[1]))).to(self.device)
+            gt_mask_resized = torch.from_numpy(np.resize(ground_truth_mask, (1, 1, ground_truth_mask.shape[0], ground_truth_mask.shape[1])))
             gt_binary_mask = torch.as_tensor(gt_mask_resized > 0, dtype=torch.float32)
 
             # single rec

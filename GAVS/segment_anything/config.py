@@ -127,8 +127,11 @@ amg_settings.add_argument(
 )
 
 
+parser.add_argument("--data", type=str, default='v1m', choices=['v1s', 'v1m', 'v3'], help="Dataset version: v1s, v1m, or v3")
 parser.add_argument("--run", type=str, default='train', help="train, test")
 
 args = parser.parse_args()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+# Only set CUDA_VISIBLE_DEVICES in single-GPU mode; torchrun manages devices for DDP
+if 'LOCAL_RANK' not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id

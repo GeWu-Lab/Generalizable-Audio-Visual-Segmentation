@@ -1,3 +1,5 @@
+This project has been re-optimized by Claude Code.
+
 # Prompting Segmentation with Sound Is Generalizable Audio-Visual Source Localizer
 ## GAVS: Generalizable-Audio-Visual-Segmentation
 Official repository of "Prompting Segmentation with Sound is Generalizable Audio-Visual Source Localizer", AAAI 2024
@@ -45,38 +47,118 @@ test the generalization ability on unseen object classes.
 ![Alt text](assets/README/image-6.png)
  Our method successfully visualizes segmented masks for unseen classes in the AVS-V2 and AVS-V3 zero-shot test sets. It accurately identifies objects despite their semantic classes being absent from the training set, demonstrating superior zero-shot generalization abilities over AVSBench's encoder-fusion-decoder approach.
 # 5. Run
-## 5.1 run scripts
-\> `cd segment_anything`  
-\> `sh run_v1m.sh` or `sh run_v3.sh`
+## 5.1 Run scripts
 
-## 5.2 Path
-All path configured should be found in dataset/avs_bench.py  
+All datasets (v1s, v1m, v3) are trained via the unified `run.py` with the `--data` flag.
 
-## 5.3 SAM checkpoint  
-Please check this [link](https://github.com/facebookresearch/segment-anything) to get started with Segment Anything Model and download the pretrained weights.
-
-## 5.4 VGGish for audio feature extraction  
-VGGish was originally a audio model developed by Google based on TensorFlow.
-
-Please find in this [repository](https://github.com/harritaylor/torchvggish) to extract the audio feature with *PyTorch*.
-
-Additionally, you may find off-line method is more convenient:
-
-(1) Use [Towhee](https://link.zhihu.com/?target=https%3A//github.com/towhee-io)
-```
-from towhee import pipe, ops
-
-p = (  # pipeline building
-      pipe.input('path')
-          .map('path', 'frame', ops.audio_decode.ffmpeg())
-          .map('frame', 'vecs', ops.audio_embedding.vggish())
-          .output('vecs')
-)
-
-emb = p('audio_example.wav').get()[0]  # shape=[n_seconds, 128]
+### Single GPU
+```bash
+cd segment_anything
+python run.py --data v1m --tune_v 8 --train --val val --loss bce
 ```
 
-(2) With Google Colab: [link](https://colab.research.google.com/drive/1r_8OnmwXKwmH0n4RxBfuICVBgpbJt_Fs?usp=sharing#scrollTo=MJWFPPSoAQzF).
+### Multi-GPU (DDP)
+```bash
+cd segment_anything
+torchrun --nproc_per_node=8 run.py --data v1m --tune_v 8 --train --val val --loss bce
+```
+
+### Examples
+```bash
+# AVS-V1s (single-sound, 5 frames)
+torchrun --nproc_per_node=8 run.py --data v1s --tune_v 8 --train --val val --loss bce
+
+# AVS-V1m (multi-sound, 5 frames)
+torchrun --nproc_per_node=8 run.py --data v1m --tune_v 8 --train --val val --loss bce
+
+# AVS-V3 (zero-shot: train on seen classes, test on unseen)
+torchrun --nproc_per_node=8 run.py --data v3 --tune_v 8 --train --val val --loss bce
+```
+
+### Key arguments
+- `--data {v1s,v1m,v3}`: Dataset version.
+- `--tune_v N`: Apply LoRA starting from encoder block N (0-11). E.g., `--tune_v 8` fine-tunes blocks 8-11.
+- `--nproc_per_node`: Number of GPUs to use.
+- `--val {val,test}`: Evaluate on val or test split.
+
+## 5.2 Data Structure
+
+```
+GAVS/
+├── data/AVS/
+│   ├── metadata.csv              # Shared metadata for v1s, v1m, v2
+│   ├── v1s/{vid}/                # V1s videos (single-sound, 5 frames)
+│   │   ├── frames/{0..4}.jpg
+│   │   └── labels_rgb/{0..4}.png
+│   ├── v1m/{vid}/                # V1m videos (multi-sound, 5 frames)
+│   │   ├── frames/{0..4}.jpg
+│   │   └── labels_rgb/{0..4}.png
+│   └── v2/{vid}/                 # V2 videos (10 frames)
+│       ├── frames/{0..9}.jpg
+│       └── labels_rgb/{0..9}.png
+│
+├── GAVS/segment_anything/
+│   ├── checkpoint/
+│   │   └── sam_vit_b_01ec64.pth  # SAM ViT-B pretrained weights
+│   ├── dataset/
+│   │   └── v3/                   # V3 metadata (re-split of v1m+v2 for zero-shot)
+│   │       ├── meta_v3_seen_train.csv
+│   │       ├── meta_v3_seen_val.csv
+│   │       ├── meta_v3_unseen.csv
+│   │       └── v3_{1,3,5}_shot/  # Few-shot splits
+│   └── feature_extract/
+│       ├── v1s_vggish_embs/      # VGGish audio embeddings
+│       ├── v1m_vggish_embs/
+│       └── v2_vggish_embs/
+```
+
+## 5.3 Download data
+
+### AVS-Bench dataset
+
+Download from the official [AVSBench](https://www.avlbench.info/) project page and organize as follows:
+
+```bash
+mkdir -p data/AVS
+# Download and unzip v1s, v1m, v2 into data/AVS/
+unzip v1s.zip -d data/AVS/
+unzip v1m.zip -d data/AVS/
+unzip v2.zip  -d data/AVS/
+```
+
+The shared metadata file `data/AVS/metadata.csv` is included in the download.
+
+### V3 metadata (zero-shot / few-shot splits)
+
+V3 does not contain new video data — it re-splits v1m and v2 for generalization evaluation. The metadata CSVs are already included in the repository at `GAVS/segment_anything/dataset/v3/`.
+
+### SAM checkpoint
+
+Download the SAM ViT-B pretrained weights:
+
+```bash
+cd GAVS/segment_anything/checkpoint/
+wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
+```
+
+Other model variants are available at [segment-anything](https://github.com/facebookresearch/segment-anything#model-checkpoints).
+
+## 5.4 VGGish audio feature extraction
+
+We provide `extract_vggish.py` to extract VGGish embeddings from raw audio. It uses [torchvggish](https://github.com/harritaylor/torchvggish) and automatically pads/truncates to the correct number of frames (5 for v1s/v1m, 10 for v2).
+
+```bash
+cd segment_anything
+
+# Extract for each dataset version
+python extract_vggish.py --ver v1s
+python extract_vggish.py --ver v1m
+python extract_vggish.py --ver v2
+```
+
+Output is saved to `feature_extract/{ver}_vggish_embs/{vid}.npy` with shape `[num_frames, 128]`.
+
+Each video directory must contain an `audio.wav` file. Already extracted embeddings are automatically skipped.
 
 # 6. Citation
 We appreciate your citation if you found our work is helpful:

@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
 import os
 import cv2  # type: ignore
@@ -11,14 +12,9 @@ import random
 sys.path.append('../modeling/')
 sys.path.append('..')
 sys.path.append('../../segment_anything/')
-# print(sys.path)
 
-import torch
-import os
 import logging
 from datetime import datetime
-import random
-import numpy as np
 
 # from segment_anything.loss.loss import BCE_Focal
 from PIL import Image
@@ -38,6 +34,60 @@ set_seed(42)
 
 import logging
 logging.getLogger('PIL').setLevel(logging.WARNING)
+
+
+# ---- DDP utilities ----
+
+def setup_ddp():
+    """Initialize DDP if launched via torchrun. Returns local_rank (-1 if single-GPU)."""
+    local_rank = int(os.environ.get('LOCAL_RANK', -1))
+    if local_rank >= 0:
+        dist.init_process_group(backend='nccl')
+        torch.cuda.set_device(local_rank)
+    return local_rank
+
+
+def cleanup_ddp():
+    """Destroy the DDP process group if it was initialized."""
+    if dist.is_available() and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def is_ddp():
+    """Check if DDP is active."""
+    return dist.is_available() and dist.is_initialized()
+
+
+def is_main_process():
+    """True on rank 0 or when not using DDP."""
+    if not is_ddp():
+        return True
+    return dist.get_rank() == 0
+
+
+def get_local_rank():
+    """Return local rank (0 if not using DDP)."""
+    return int(os.environ.get('LOCAL_RANK', 0))
+
+
+def get_world_size():
+    """Return world size (1 if not using DDP)."""
+    if is_ddp():
+        return dist.get_world_size()
+    return 1
+
+
+def batch_to_device(data, device):
+    """Recursively move all tensors in a nested structure to device."""
+    if isinstance(data, torch.Tensor):
+        return data.to(device, non_blocking=True)
+    elif isinstance(data, dict):
+        return {k: batch_to_device(v, device) for k, v in data.items()}
+    elif isinstance(data, (list, tuple)):
+        result = [batch_to_device(item, device) for item in data]
+        return tuple(result) if isinstance(data, tuple) else result
+    else:
+        return data
 
 
 def log_agent(log_name='std'):
